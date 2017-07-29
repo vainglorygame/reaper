@@ -10,6 +10,7 @@ const winston = require("winston"),
 const DATABASE_URI = process.env.DATABASE_URI,
     ELASTIC_URI = process.env.ELASTIC_URI || "localhost:9200",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
+    BATCHSIZE = process.env.BATCHSIZE || 50,
     MAXCONNS = parseInt(process.env.MAXCONNS) || 20;
 
 const logger = new (winston.Logger)({
@@ -41,7 +42,7 @@ const seq = new Seq(DATABASE_URI, {
 
 // assumes `id` exists
 // Sequelize model, index type, index key, key to parent id, hook, custom condition
-async function load(table, type, parent_key, merger, filter) {
+async function load(table, type, includes, filter) {
     // load from biggest id to 0
     const last_id_r = await model.Keys.findOrCreate({
             where: { type: "reaper_last_id_fetched", key: type },
@@ -54,72 +55,60 @@ async function load(table, type, parent_key, merger, filter) {
 
         logger.info("loading", { type, last_id });
 
-        let data = await table.findOne({
+        let data = await table.findAll({
             where: condition,
             order: [ [seq.col("id"), "DESC"] ],
+            include: includes,
+            limit: BATCHSIZE,
             raw: true
         });
-        if (data == undefined) break;  // exhausted
-        last_id_r[0].value = data.id;
-        await last_id_r[0].save();
+        if (data.length == 0) break;  // exhausted
+        await last_id_r[0].update({ value: data[data.length-1].id });
 
-        // using a custom function, merge with other models as needed
-        if (merger != undefined)
-            // important! don't merge the other way round, merged ids should not overwrite
-            data = Object.assign(await merger(data), data);
-
-        let id = data.api_id != undefined? data.api_id:data.id,
-            // pp doesn't have api id
-            parent = parent_key != undefined? data[parent_key]:undefined;
-        await elastic.create({
-            index: "semc-vainglory",
-            type,
-            id,
-            parent,
-            body: data
+        await elastic.bulk({
+            body: [].concat(... data.map((d) => [
+                { index: {
+                    _index: type,
+                    _type: type,
+                    _id: d.api_id || d.id
+                } },
+                d
+            ]) )
         });
     }
 
     logger.info("done.", { type });
 }
 
-async function createParentChild(parent_type, child_type) {
-    await elastic.indices.putMapping({
-        index: "semc-vainglory",
-        type: child_type,
-        body: {
-            "_parent": { "type": parent_type }
-        }
-    });
-}
-
 (async function() {
-    try {
-        await elastic.indices.create({ index: "semc-vainglory" });
-        await Promise.all([
-            createParentChild("participant", "participant_phases"),
-            createParentChild("roster", "participant"),
-            createParentChild("match", "roster"),
-            createParentChild("player", "player_point")
-        ]);
-    } catch (e) { }  // already exist
-
     await Promise.all([
-        load(model.Match, "match", undefined, async (m) =>
-            await model.Asset.findOne({
-                where: { match_api_id: m.api_id },
-                raw: true
-            }) || { }
-        ),
-        load(model.Roster, "roster", "match_api_id"),
-        load(model.Participant, "participant", "roster_api_id", async (p) =>
-            await model.ParticipantStats.findOne({
-                where: { participant_api_id: p.api_id },
-                raw: true
-            })
-        ),
-        load(model.ParticipantPhases, "participant_phases", "participant_api_id"),
-        load(model.Player, "player"),
-        load(model.PlayerPoint, "player_point", "player_api_id")
+        load(model.Participant, "participant", [
+            model.ParticipantStats,
+            model.Player,
+            model.Roster,
+            model.Match,
+
+            model.Region, model.Hero, model.Series, model.GameMode, model.Role
+        ]),
+        load(model.ParticipantPhases, "participant_phases", [ {
+            model: model.Participant,
+            include: [
+                model.Region, model.Hero, model.Series, model.GameMode, model.Role
+            ]
+        } ]),
+        //load(model.Match, "match", [ model.Asset ]),
+
+        load(model.PlayerPoint, "player_point", [ {
+            model: model.Player,
+            include: [ model.Region ]
+        },
+            model.Series, model.Hero, model.GameMode, model.Role
+        ]),
+        //load(model.Player, "player", [ model.Region ]),
     ]);
 })();
+
+process.on("unhandledRejection", (err) => {
+    logger.error(err);
+    //process.exit();
+});
