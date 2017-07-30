@@ -84,7 +84,6 @@ async function load(table, type, includes, filter) {
     await Promise.all([
         load(model.Participant, "participant", [
             model.ParticipantStats,
-            model.Player,
             model.Roster,
             model.Match,
 
@@ -104,7 +103,7 @@ async function load(table, type, includes, filter) {
         },
             model.Series, model.Hero, model.GameMode, model.Role
         ]),
-        //load(model.Player, "player", [ model.Region ]),
+        load(model.Player, "player", [ model.Region ]),
     ]);
 })();
 
