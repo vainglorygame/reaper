@@ -46,12 +46,12 @@ async function load(table, type, includes, filter) {
     // load from biggest id to 0
     const last_id_r = await model.Keys.findOrCreate({
             where: { type: "reaper_last_id_fetched", key: type },
-            defaults: { value: 2147483647 }
+            defaults: { value: 0 }
         });
     while (true) {
         const last_id = last_id_r[0].value,
             condition = Object.assign({}, filter,
-                { id: { $lt: last_id } });
+                { id: { $gt: last_id } });
 
         logger.info("loading", { type, last_id });
 
