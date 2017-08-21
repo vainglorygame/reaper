@@ -13,6 +13,7 @@ const RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     DATABASE_URI = process.env.DATABASE_URI,
     ELASTICSEARCH_URI = process.env.ELASTICSEARCH_URI || "localhost:9200",
     QUEUE = process.env.QUEUE || "reap",
+    INDEX = process.env.INDEX || "phase",
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
     BATCHSIZE = parseInt(process.env.BATCHSIZE) || 10,
     IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT) || 1000,  // ms
@@ -115,6 +116,40 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
             data = [].concat(... await Promise.map(phase_objects, async (po) => {
                 // TODO would be better to get all in bulk using the id
                 return await model.ParticipantPhases.findAll({
+                    attributes: [
+                        "id", "created_at", "updated_at", "start", "end",
+                        "participant_api_id",
+                        "kills", "deaths", "assists", /* "farm" ,*/
+                        "minion_kills", "jungle_kills",
+                        "non_jungle_minion_kills",
+                        "crystal_mine_captures", "gold_mine_captures",
+                        "kraken_captures", "turret_captures",
+                        /*"gold",*/
+                        "dmg_true_hero", "dmg_true_kraken",
+                        "dmg_true_turret", "dmg_true_vain_turret",
+                        "dmg_true_others",
+                        "dmg_dealt_hero", "dmg_dealt_kraken",
+                        "dmg_dealt_turret", "dmg_dealt_vain_turret",
+                        "dmg_dealt_others",
+                        "dmg_rcvd_dealt_hero", "dmg_rcvd_true_hero",
+                        "dmg_rcvd_dealt_others", "dmg_rcvd_true_others",
+                        "ability_a_level", "ability_b_level", "ability_c_level",
+                        "hero_level",
+                        /* scores, */
+                        "draft_position", "ban", "pick",
+                        /*seq.fn("COLUMN_JSON", "items"),*/
+                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_grants")), "item_grants" ],
+                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_sells")), "item_sells" ],
+                        "ability_a_use", "ability_b_use", "ability_c_use",
+                        "ability_a_damage_true", "ability_a_damage_dealt",
+                        "ability_b_damage_true", "ability_b_damage_dealt",
+                        "ability_c_damage_true", "ability_c_damage_dealt",
+                        "ability_perk_damage_true", "ability_perk_damage_dealt",
+                        "ability_aa_damage_true", "ability_aa_damage_dealt",
+                        "ability_aacrit_damage_true", "ability_aacrit_damage_dealt",
+                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_uses")), "item_uses" ]/*,
+                        seq.fn("COLUMN_JSON", "player_damage")*/
+                    ],
                     where: {
                         "$participant.match_api_id$": po.match_api_id,
                         start: po.start,
@@ -130,9 +165,25 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                             model.Role,
 
                             model.ParticipantStats,
+                            {
+                                model: model.ParticipantItems,
+                                attributes: [
+                                    "id", "shard_id", "participant_api_id",
+                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.items")), "items" ],
+                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_grants")), "item_grants" ],
+                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_uses")), "item_uses" ],
+                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_sells")), "item_sells" ]
+                                ],
+                            },
                             model.Roster,
                             model.Match
                         ]
+                    }, {
+                        model: model.Hero,
+                        as: "HeroBan"
+                    }, {
+                        model: model.Hero,
+                        as: "HeroPick"
                     } ],
                     raw: true
                 })
@@ -143,9 +194,9 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
         await elastic.bulk({
             body: [].concat(... data.map((d) => [
                 { index: {
-                    _index: "phase",
-                    _type: "phase",
-                    _id: d.id
+                    _index: `${INDEX}_${d.participant.series.name}`,
+                    _type: INDEX,
+                    _id: `${d.participant_api_id}@${d.start}+${d.end}`
                 } },
                 d
             ]) )
