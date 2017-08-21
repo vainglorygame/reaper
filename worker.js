@@ -138,8 +138,8 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                         /* scores, */
                         "draft_position", "ban", "pick",
                         /*seq.fn("COLUMN_JSON", "items"),*/
-                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_grants")), "item_grants" ],
-                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_sells")), "item_sells" ],
+                        [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant_phases.item_grants")), "char"), "item_grants" ],
+                        [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant_phases.item_sells")), "char"), "item_sells" ],
                         "ability_a_use", "ability_b_use", "ability_c_use",
                         "ability_a_damage_true", "ability_a_damage_dealt",
                         "ability_b_damage_true", "ability_b_damage_dealt",
@@ -147,7 +147,7 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                         "ability_perk_damage_true", "ability_perk_damage_dealt",
                         "ability_aa_damage_true", "ability_aa_damage_dealt",
                         "ability_aacrit_damage_true", "ability_aacrit_damage_dealt",
-                        [ seq.fn("COLUMN_JSON", seq.col("participant_phases.item_uses")), "item_uses" ]/*,
+                        [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant_phases.item_uses")), "char"), "item_uses" ]/*,
                         seq.fn("COLUMN_JSON", "player_damage")*/
                     ],
                     where: {
@@ -169,10 +169,10 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                                 model: model.ParticipantItems,
                                 attributes: [
                                     "id", "shard_id", "participant_api_id",
-                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.items")), "items" ],
-                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_grants")), "item_grants" ],
-                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_uses")), "item_uses" ],
-                                    [ seq.fn("COLUMN_JSON", seq.col("participant_items.item_sells")), "item_sells" ]
+                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.items")), "char"), "items" ],
+                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_grants")), "char"), "item_grants" ],
+                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_uses")), "char"), "item_uses" ],
+                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_sells")), "char"), "item_sells" ]
                                 ],
                             },
                             model.Roster,
@@ -180,10 +180,10 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                         ]
                     }, {
                         model: model.Hero,
-                        as: "HeroBan"
+                        as: "hero_ban"
                     }, {
                         model: model.Hero,
-                        as: "HeroPick"
+                        as: "hero_pick"
                     } ],
                     raw: true
                 })
