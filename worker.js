@@ -190,11 +190,16 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
             } ) );
         db_profiler.done("database transaction");
 
+        if (data.length == 0) {
+            logger.error("no data!");
+            return;
+        }
+
         const es_profiler = logger.startTimer();
         await elastic.bulk({
             body: [].concat(... data.map((d) => [
                 { index: {
-                    _index: `${INDEX}_${d.participant.series.name}`,
+                    _index: `${INDEX}_${d["participant.series.name"]}`,
                     _type: INDEX,
                     _id: `${d.participant_api_id}@${d.start}+${d.end}`
                 } },
