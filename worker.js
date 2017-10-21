@@ -14,6 +14,8 @@ const RABBITMQ_URI = process.env.RABBITMQ_URI || "amqp://localhost",
     ELASTICSEARCH_URI = process.env.ELASTICSEARCH_URI || "localhost:9200",
     QUEUE = process.env.QUEUE || "reap",
     INDEX = process.env.INDEX || "phase",
+    JOIN_PLAYER = process.env.JOIN_PLAYER == "true",  // include player records
+    SPLIT_INDEX = process.env.SPLIT_INDEX != "false",  // split index into index_seriesName
     LOGGLY_TOKEN = process.env.LOGGLY_TOKEN,
     BATCHSIZE = parseInt(process.env.BATCHSIZE) || 10,
     IDLE_TIMEOUT = parseInt(process.env.IDLE_TIMEOUT) || 1000,  // ms
@@ -115,7 +117,7 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
         const db_profiler = logger.startTimer(),
             data = [].concat(... await Promise.map(phase_objects, async (po) => {
                 // TODO would be better to get all in bulk using the id
-                return await model.ParticipantPhases.findAll({
+                let phases = await model.ParticipantPhases.findAll({
                     attributes: [
                         "id", "created_at", "updated_at", "start", "end",
                         "participant_api_id",
@@ -172,21 +174,51 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                                     [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.items")), "char"), "items" ],
                                     [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_grants")), "char"), "item_grants" ],
                                     [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_uses")), "char"), "item_uses" ],
-                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_sells")), "char"), "item_sells" ]
+                                    [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant->participant_items.item_sells")), "char"), "item_sells" ],
+                                    "surrender",
+                                    "trueskill_ranked_mu", "trueskill_ranked_sigma"
                                 ],
                             },
                             model.Roster,
                             model.Match
-                        ]
+                        ].concat(JOIN_PLAYER? [ model.Player ] : [])
                     }, {
                         model: model.Hero,
                         as: "hero_ban"
                     }, {
                         model: model.Hero,
                         as: "hero_pick"
-                    } ],
+                    }
+                    ],
                     raw: true
-                })
+                });
+                // parse dynamic columns output
+                phases.forEach((data) => {
+                    //data.items = JSON.parse(data.items);
+                    if (data.item_grants != "")
+                        data.item_grants = JSON.parse(data.item_grants);
+                    else data.item_grants = {};
+                    if (data.item_sells != "")
+                        data.item_sells = JSON.parse(data.item_sells);
+                    else data.item_sells = {};
+                    if (data.item_uses != "")
+                        data.item_uses = JSON.parse(data.item_uses);
+                    else data.item_uses = {};
+
+                    if (data["participant.participant_items.items"] != "")
+                        data["participant.participant_items.items"] = JSON.parse(data["participant.participant_items.items"]);
+                    else data["participant.participant_items.items"] = {};
+                    if (data["participant.participant_items.item_grants"] != "")
+                        data["participant.participant_items.item_grants"] = JSON.parse(data["participant.participant_items.item_grants"]);
+                    else data["participant.participant_items.item_grants"] = {};
+                    if (data["participant.participant_items.item_sells"] != "")
+                        data["participant.participant_items.item_sells"] = JSON.parse(data["participant.participant_items.item_sells"]);
+                    else data["participant.participant_items.item_sells"] = {};
+                    if (data["participant.participant_items.item_uses"] != "")
+                        data["participant.participant_items.item_uses"] = JSON.parse(data["participant.participant_items.item_uses"]);
+                    else data["participant.participant_items.item_uses"] = {};
+                });
+                return phases;
             } ) );
         db_profiler.done("database transaction");
 
@@ -199,7 +231,11 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
         await elastic.bulk({
             body: [].concat(... data.map((d) => [
                 { index: {
-                    _index: `${INDEX}_${d["participant.series.name"]}`,
+                    _index:
+                        SPLIT_INDEX?
+                            `${INDEX}_${d["participant.series.name"].toLowerCase().replace(/ |\./g, "_")}`
+                        :
+                            INDEX,
                     _type: INDEX,
                     _id: `${d.participant_api_id}@${d.start}+${d.end}`
                 } },
