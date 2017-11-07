@@ -139,8 +139,14 @@ amqp.connect(RABBITMQ_URI).then(async (rabbit) => {
                         "hero_level",
                         /* scores, */
                         "draft_position", "ban", "pick",
+                        "heal_heal_hero", "heal_healed_hero", "heal_heal_ally", "heal_healed_ally",
+                        "heal_heal_other", "heal_healed_other", "heal_rcvd_heal_hero", "heal_rcvd_healed_hero",
+                        "heal_rcvd_heal_ally", "heal_rcvd_healed_ally",
+                        "heal_rcvd_healed_vamp",
+                        "heal_rcvd_heal_other", "heal_rcvd_healed_other",
                         /*seq.fn("COLUMN_JSON", "items"),*/
                         [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant_phases.item_grants")), "char"), "item_grants" ],
+                        "item_grants_inorder",
                         [ seq.cast(seq.fn("COLUMN_JSON", seq.col("participant_phases.item_sells")), "char"), "item_sells" ],
                         "ability_a_use", "ability_b_use", "ability_c_use",
                         "ability_a_damage_true", "ability_a_damage_dealt",
